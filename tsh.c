@@ -2,6 +2,8 @@
  * tsh - A tiny shell program with job control
  * 
  * <Put your name and login ID here>
+ * Colin McDonough <email here>
+ * Zachariah Dumey zwdumey@wustl.edu
  */
 #include <stdio.h>
 #include <stdlib.h>
