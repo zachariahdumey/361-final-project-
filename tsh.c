@@ -1,8 +1,9 @@
 /* 
+ * Copyright 2010
+ *
  * tsh - A tiny shell program with job control
- * 
- * <Put your name and login ID here>
- * Colin McDonough <email here>
+ *
+ * cmcdonough@wustl.edu (Colin McDonough)
  * Zachariah Dumey zwdumey@wustl.edu
  */
 #include <stdio.h>
@@ -275,7 +276,8 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
-    return;
+    printf("\n");
+    exit(0);
 }
 
 /*
