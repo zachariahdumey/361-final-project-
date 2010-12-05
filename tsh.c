@@ -188,8 +188,10 @@ void eval(char *cmdline)
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
             }
+            printf("Hello from child.");
         }
 
+        addjob(jobs, pid, bg?BG:FG, cmdline);
         /* Parent waits for foreground job to terminate */
         if (!bg) {
             int status;
@@ -197,7 +199,8 @@ void eval(char *cmdline)
                 unix_error("waitfg: waitpid error");
             }
         } else {
-            printf("%d %s", pid, cmdline);
+            int status;
+            waitpid(pid, &status, WNOHANG);
         }
     }
 
@@ -331,13 +334,25 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig) 
 {
     pid_t pid;
+    int reaped_bg_child;
+    struct job_t *job;
+    reaped_bg_child = 0;
 
     while ((pid = waitpid(-1, NULL, 0)) > 0) {
         printf("Handler reaped child %d\n", (int)pid);
+        job = getjobpid(jobs, pid);
+        if (job->state == BG) {
+            reaped_bg_child = 1;
+        }
+        deletejob(jobs, pid);
     }
     if (errno != ECHILD) {
         unix_error("waitpid error");
     }
+    /*if (reaped_bg_child == 0) {
+        printf("%s", prompt);
+	fflush(stdout);
+    }*/
     sleep(2);
     return;
 }
@@ -349,8 +364,15 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
-    printf("\n");
-    exit(0);
+    struct job_t *job = getjobpid(jobs, fgpid(jobs));
+    if (job != NULL) {
+        kill(job->pid, SIGINT);
+        deletejob(jobs, job->pid);
+        printf("\n");
+    } else {
+        printf("\n");
+        exit(0);
+    }
 }
 
 /*
@@ -360,7 +382,13 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-    return;
+    struct job_t *job = getjobpid(jobs, fgpid(jobs));
+    if (job != NULL) {
+      kill(job->pid, SIGTSTP);
+      job->state = ST;
+      printf("Suspend fg job %i, new state: %i", job->pid, job->state);
+      return;
+    }
 }
 
 /*********************
