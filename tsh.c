@@ -330,6 +330,15 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+    pid_t pid;
+
+    while ((pid = waitpid(-1, NULL, 0)) > 0) {
+        printf("Handler reaped child %d\n", (int)pid);
+    }
+    if (errno != ECHILD) {
+        unix_error("waitpid error");
+    }
+    sleep(2);
     return;
 }
 
