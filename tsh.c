@@ -125,7 +125,7 @@ int main(int argc, char **argv)
 
     /* These are the ones you will need to implement */
     Signal(SIGINT,  sigint_handler);   /* ctrl-c */
-    Signal(SIGTSTP, sigtstp_handler);  /* ctrl-z */
+    Signal(SIGTSTP,   sigtstp_handler);  /* ctrl-z */
     Signal(SIGCHLD, sigchld_handler);  /* Terminated or stopped child */
 
     /* This one provides a clean way to kill the shell */
@@ -184,6 +184,7 @@ void eval(char *cmdline)
 
     if (!builtin_cmd(argv)) {
         if ((pid = Fork()) == 0) { /* Child runs user job */
+            setpgid(0, 0);
             if (execve(argv[0], argv, environ) < 0) {
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
@@ -286,7 +287,7 @@ int builtin_cmd(char **argv)
         exit(0);
     }
     if (!strcmp(argv[0], "jobs")) { /* jobs command */
-        // TODO: implement
+        listjobs(jobs);
         return 1;
     }
     if (!strcmp(argv[0], "bg")) { /* bg command */
@@ -294,7 +295,13 @@ int builtin_cmd(char **argv)
         return 1;
     }
     if (!strcmp(argv[0], "fg")) { /* fg command */
-        // TODO: implement
+        int jid = (int) argv[1];
+        struct job_t *job = getjobpid(jobs, jid);
+        if (job != NULL) {
+            printf("Changing background job %i to foreground job", job->pid);
+            fflush(stdout);
+            kill(-job->pid, SIGCONT);
+        }
         return 1;
     }
     if (!strcmp(argv[0], "&")) { /* Ignore singleton & */
@@ -338,7 +345,7 @@ void sigchld_handler(int sig)
     struct job_t *job;
     reaped_bg_child = 0;
 
-    while ((pid = waitpid(-1, NULL, 0)) > 0) {
+    while ((pid = waitpid(-1, NULL, WNOHANG|WUNTRACED)) > 0) {
         printf("Handler reaped child %d\n", (int)pid);
         job = getjobpid(jobs, pid);
         if (job->state == BG) {
@@ -366,11 +373,13 @@ void sigint_handler(int sig)
 {
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
-        kill(job->pid, SIGINT);
+        kill(-job->pid, SIGINT);
         deletejob(jobs, job->pid);
         printf("\n");
+        fflush(stdout);
     } else {
         printf("\n");
+        fflush(stdout);
         exit(0);
     }
 }
@@ -384,9 +393,10 @@ void sigtstp_handler(int sig)
 {
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
-      kill(job->pid, SIGTSTP);
+      kill(-job->pid, SIGTSTP);
       job->state = ST;
       printf("Suspend fg job %i, new state: %i", job->pid, job->state);
+      fflush(stdout);
       return;
     }
 }
