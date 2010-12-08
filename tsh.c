@@ -57,8 +57,11 @@ struct job_t jobs[MAXJOBS]; /* The job list */
 
 /* Function prototypes */
 
-/* Our own function */
+/* Our own functions */
 pid_t Fork(void);
+int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+int Sigemptyset(sigset_t *set);
+int Sigaddset(sigset_t *set, int signum);
 
 /* Here are the functions that you will implement */
 void eval(char *cmdline);
@@ -175,6 +178,7 @@ void eval(char *cmdline)
     char buf[MAXLINE];   /* Holds modified command line */
     int bg;              /* Should the job run in bg or fg? */
     pid_t pid;           /* Process id */
+    sigset_t mask;
 
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
@@ -183,8 +187,13 @@ void eval(char *cmdline)
     }
 
     if (!builtin_cmd(argv)) {
+        Sigemptyset(&mask);
+        Sigaddset(&mask, SIGCHLD);
+        Sigprocmask(SIG_BLOCK, &mask, NULL); /* Block SIGCHLD */
+
         if ((pid = Fork()) == 0) { /* Child runs user job */
             setpgid(0, 0);
+            Sigprocmask(SIG_UNBLOCK, &mask, NULL);
             if (execve(argv[0], argv, environ) < 0) {
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
@@ -197,12 +206,13 @@ void eval(char *cmdline)
         if (!bg) {
             int status;
             if (waitpid(pid, &status, 0) < 0) {
-                unix_error("waitfg: waitpid error");
+                unix_error("waitfg: waitpid error (in eval)");
             }
         } else {
             int status;
             waitpid(pid, &status, WNOHANG);
         }
+        Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock SIGCHLD */
     }
 
     return;
@@ -218,6 +228,42 @@ pid_t Fork(void) {
         unix_error("Fork error");
     }
     return pid;
+}
+
+/*
+ *
+ */
+int Sigemptyset(sigset_t *set) {
+    int value;
+
+    if ((value = sigemptyset(set)) < 0) {
+        unix_error("Sigemtpyset error");
+    }
+    return value;
+}
+
+/*
+ *
+ */
+int Sigaddset(sigset_t *set, int signum) {
+    int value;
+
+    if ((value = sigaddset(set, signum)) < 0) {
+        unix_error("Sigaddset error");
+    }
+    return value;
+}
+
+/*
+ *
+ */
+int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
+    int value;
+
+    if ((value = sigprocmask(how, set, oldset)) < 0) {
+        unix_error("Sigprocmask error");
+    }
+    return value;
 }
 
 /* 
