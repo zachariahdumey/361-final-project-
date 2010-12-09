@@ -58,11 +58,12 @@ struct job_t jobs[MAXJOBS]; /* The job list */
 /* Function prototypes */
 
 /* Our own functions */
+pid_t Setpgid(pid_t a, pid_t b);
 pid_t Fork(void);
 int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 int Sigemptyset(sigset_t *set);
 int Sigaddset(sigset_t *set, int signum);
-
+int Kill(pid_t p, int signum);
 /* Here are the functions that you will implement */
 void eval(char *cmdline);
 int builtin_cmd(char **argv);
@@ -187,13 +188,18 @@ void eval(char *cmdline)
     }
 
     if (!builtin_cmd(argv)) {
+        /* Block SIGCHLD, SIGINT,	 
+	and SIGSTP until the job to be run is on the list */
         Sigemptyset(&mask);
         Sigaddset(&mask, SIGCHLD);
-        Sigprocmask(SIG_BLOCK, &mask, NULL); /* Block SIGCHLD */
+        Sigaddset(&mask, SIGINT);
+        Sigaddset(&mask, SIGTSTP);
+        Sigprocmask(SIG_BLOCK, &mask, NULL); 
 
         if ((pid = Fork()) == 0) { /* Child runs user job */
-            setpgid(0, 0);
-            Sigprocmask(SIG_UNBLOCK, &mask, NULL);
+            Setpgid(0, 0); //give the child a new group
+	/* unblock signals for child */
+            Sigprocmask(SIG_UNBLOCK, &mask, NULL); 
             if (execve(argv[0], argv, environ) < 0) {
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
@@ -206,19 +212,19 @@ void eval(char *cmdline)
         /* Parent waits for foreground job to terminate */
         if (!bg) {
             waitfg(pid);
-            /*int status;
-            if (waitpid(pid, &status, 0) < 0) {
-                unix_error("waitfg: waitpid error (in eval)");
-            } else {
-              struct job_t *job;
-              job  = getjobpid(jobs, pid);
-              deletejob(jobs, pid);
-            }*/
         }
     }
 
     return;
 }
+
+pid_t Setpgid(pid_t a, pid_t b) {
+	pid_t pid;
+	if ((pid = setpgid(a, b)) < 0) {
+		unix_error("setpgid error");
+	}
+	return pid;
+}	
 
 /*
  *
@@ -266,6 +272,14 @@ int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
         unix_error("Sigprocmask error");
     }
     return value;
+}
+
+pid_t Kill(pid_t p, int signum) {
+	pid_t pid;	
+	if ((pid = kill(p, signum)) < 0) {
+		unix_error("kill error");
+	}
+	return pid;
 }
 
 /* 
@@ -382,23 +396,19 @@ void waitfg(pid_t pid)
         job  = getjobpid(jobs, pid);
         deletejob(jobs, pid);
     }*/
-
+    
     struct job_t *job = getjobpid(jobs, pid);
-
     /* fg done and already reaped by handler */
     if (!job) {
         return;
     }
-
     /* Wait for a fg */
-    while ((getjobpid(jobs, pid) != NULL) && job->pid == pid &&
-            job->state == FG) {
+    while (job->pid == pid && job->state == FG) {
         sleep(1);
     }
-
-    printf("waitfg: pid %i no longer FG\n", pid);
+    /*printf("waitfg: pid %i no longer FG\n", pid);
     fflush(stdout);
-
+    */
     return;
 }
 
@@ -416,26 +426,24 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig) 
 {
     pid_t pid;
-    int reaped_bg_child;
-    struct job_t *job;
-    reaped_bg_child = 0;
+    struct job_t *job;  
+    int status;
 
-    while ((pid = waitpid(-1, NULL, WNOHANG|WUNTRACED)) > 0) {
+    while ((pid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
         //printf("Handler reaped child %d\n", (int)pid);
-        job = getjobpid(jobs, pid);
-        if (job->state == BG) {
-            reaped_bg_child = 1;
+        if (WIFEXITED(status)) {
+	        //remove normally terminated children from jobs
+        	job = getjobpid(jobs, pid);
+        	deletejob(jobs, pid);
         }
-        deletejob(jobs, pid);
     }
-    if (errno != ECHILD) {
+
+    // after the loop, it should be the case that the pid returned
+    // by waitpid == -1 AND errno == ECHILD 
+    // or that the pid == 0
+    if ((errno != ECHILD && pid == -1) || pid > 0) {
         unix_error("waitpid error");
     }
-    /*if (reaped_bg_child == 0) {
-        printf("%s", prompt);
-	fflush(stdout);
-    }*/
-    //sleep(2);
     return;
 }
 
@@ -448,7 +456,7 @@ void sigint_handler(int sig)
 {
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
-        kill(-job->pid, SIGINT);
+        Kill(-job->pid, SIGINT);
         deletejob(jobs, job->pid);
         printf("\n");
         fflush(stdout);
@@ -466,7 +474,7 @@ void sigtstp_handler(int sig)
     fflush(stdout);
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
-      kill(-job->pid, SIGTSTP);
+      Kill(-job->pid, SIGTSTP);
       job->state = ST;
       printf("Suspend fg job %i, new state: %i", job->pid, job->state);
       fflush(stdout);
