@@ -202,17 +202,19 @@ void eval(char *cmdline)
         }
 
         addjob(jobs, pid, bg?BG:FG, cmdline);
+        Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock SIGCHLD */
         /* Parent waits for foreground job to terminate */
         if (!bg) {
-            int status;
+            waitfg(pid);
+            /*int status;
             if (waitpid(pid, &status, 0) < 0) {
                 unix_error("waitfg: waitpid error (in eval)");
-            }
-        } else {
-            int status;
-            waitpid(pid, &status, WNOHANG);
+            } else {
+              struct job_t *job;
+              job  = getjobpid(jobs, pid);
+              deletejob(jobs, pid);
+            }*/
         }
-        Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock SIGCHLD */
     }
 
     return;
@@ -318,6 +320,8 @@ int parseline(const char *cmdline, char **argv)
 
     /* should the job run in the background? */
     if ((bg = (*argv[argc-1] == '&')) != 0) {
+        /*(printf("Job in background: %s", cmdline);
+        fflush(stdout);*/
 	argv[--argc] = NULL;
     }
     return bg;
@@ -370,6 +374,31 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    /*int status;
+    if (waitpid(pid, &status, 0) < 0) {
+        unix_error("waitfg: waitpid error (in eval)");
+    } else {
+        struct job_t *job;
+        job  = getjobpid(jobs, pid);
+        deletejob(jobs, pid);
+    }*/
+
+    struct job_t *job = getjobpid(jobs, pid);
+
+    /* fg done and already reaped by handler */
+    if (!job) {
+        return;
+    }
+
+    /* Wait for a fg */
+    while ((getjobpid(jobs, pid) != NULL) && job->pid == pid &&
+            job->state == FG) {
+        sleep(1);
+    }
+
+    printf("waitfg: pid %i no longer FG\n", pid);
+    fflush(stdout);
+
     return;
 }
 
@@ -392,7 +421,7 @@ void sigchld_handler(int sig)
     reaped_bg_child = 0;
 
     while ((pid = waitpid(-1, NULL, WNOHANG|WUNTRACED)) > 0) {
-        printf("Handler reaped child %d\n", (int)pid);
+        //printf("Handler reaped child %d\n", (int)pid);
         job = getjobpid(jobs, pid);
         if (job->state == BG) {
             reaped_bg_child = 1;
@@ -406,7 +435,7 @@ void sigchld_handler(int sig)
         printf("%s", prompt);
 	fflush(stdout);
     }*/
-    sleep(2);
+    //sleep(2);
     return;
 }
 
@@ -423,10 +452,6 @@ void sigint_handler(int sig)
         deletejob(jobs, job->pid);
         printf("\n");
         fflush(stdout);
-    } else {
-        printf("\n");
-        fflush(stdout);
-        exit(0);
     }
 }
 
@@ -437,6 +462,8 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    printf("sigtstp_handler invoked\n");
+    fflush(stdout);
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
       kill(-job->pid, SIGTSTP);
@@ -444,7 +471,12 @@ void sigtstp_handler(int sig)
       printf("Suspend fg job %i, new state: %i", job->pid, job->state);
       fflush(stdout);
       return;
+    } else {
+        printf("sigtstp_handler jid was null\n");
+        fflush(stdout);
     }
+    printf("sigtstp_handler over\n");
+    fflush(stdout);
 }
 
 /*********************
@@ -485,6 +517,8 @@ int maxjid(struct job_t *jobs)
 /* addjob - Add a job to the job list */
 int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline) 
 {
+    /*printf("Adding job %i  with bg = %i\n", pid, state);
+    fflush(stdout);*/
     int i;
     
     if (pid < 1)
