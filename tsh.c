@@ -204,11 +204,11 @@ void eval(char *cmdline)
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
             }
-            printf("Hello from child.");
         }
 
         addjob(jobs, pid, bg?BG:FG, cmdline);
-        Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock SIGCHLD */
+        //printf("added job with pid %i\n", pid);
+	Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock SIGCHLD */
         /* Parent waits for foreground job to terminate */
         if (!bg) {
             waitfg(pid);
@@ -355,18 +355,12 @@ int builtin_cmd(char **argv)
         return 1;
     }
     if (!strcmp(argv[0], "bg")) { /* bg command */
-        // TODO: implement
+        do_bgfg(argv);
         return 1;
     }
     if (!strcmp(argv[0], "fg")) { /* fg command */
-        int jid = (int) argv[1];
-        struct job_t *job = getjobpid(jobs, jid);
-        if (job != NULL) {
-            printf("Changing background job %i to foreground job", job->pid);
-            fflush(stdout);
-            kill(-job->pid, SIGCONT);
-        }
-        return 1;
+    	do_bgfg(argv); // sending it off to the do_bgfg method
+	return 1;
     }
     if (!strcmp(argv[0], "&")) { /* Ignore singleton & */
         return 1;
@@ -380,7 +374,66 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
-    return;
+	
+	struct job_t* job;
+        char is_percent; //using this to hold the first char of argv[1] to check for a % 
+	char * jidarg = argv[1] + 1;
+	is_percent = argv[1][0];
+
+	if (argv[1] == NULL) {
+		printf("%s requires a nonzero PID or %%jobid argument.. you gave none\n", argv[0]);
+		return;
+	}
+
+	if (is_percent != '%' && atoi(is_percent) == 0) {
+		printf("%s requires a valid (nonzero) PID or %%jobid argument", argv[0]);
+		return;
+	}
+		
+	job = is_percent == '%'? getjobjid(jobs, atoi(jidarg)) : getjobpid(jobs, atoi(argv[1]));
+	
+	if (!strcmp(argv[0], "fg")) {
+        	if (job != NULL && job->state == ST) {
+            		printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);
+            		fflush(stdout);
+            		if (Kill(-job->pid, SIGCONT) == 0) {
+				job->state = FG;
+				// since sigcont will just run the program in the background, 
+				// we need to explicitly tell the shell
+				// to wait for it to complete
+				waitfg(job->pid);
+			}
+		}
+		else if (job == NULL) {
+			if (is_percent == '%') {
+				printf("(%i) No such job by this jid\n", atoi(jidarg));
+			}
+			else {
+				printf("(%i) No such job by this pid\n", atoi(argv[1]));
+			}
+			fflush(stdout);
+		}
+	}
+	else if (!strcmp(argv[0], "bg")) {
+		if (job != NULL && job->state == ST) {
+			printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);	
+			fflush(stdout);
+			if (Kill(-job->pid, SIGCONT) == 0) {
+				job->state = BG;
+			}
+		}
+		else if (job == NULL) {
+			if (is_percent == '%') {
+				printf("(%i) No such job by this jid\n", atoi(jidarg));
+			}
+			else {
+				printf("(%i) No such job by this pid\n", atoi(argv[1]));
+			}
+			fflush(stdout);
+		}
+	}
+	fflush(stdout);
+	return;
 }
 
 /* 
@@ -388,14 +441,6 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-    /*int status;
-    if (waitpid(pid, &status, 0) < 0) {
-        unix_error("waitfg: waitpid error (in eval)");
-    } else {
-        struct job_t *job;
-        job  = getjobpid(jobs, pid);
-        deletejob(jobs, pid);
-    }*/
     
     struct job_t *job = getjobpid(jobs, pid);
     /* fg done and already reaped by handler */
@@ -406,9 +451,6 @@ void waitfg(pid_t pid)
     while (job->pid == pid && job->state == FG) {
         sleep(1);
     }
-    /*printf("waitfg: pid %i no longer FG\n", pid);
-    fflush(stdout);
-    */
     return;
 }
 
@@ -457,8 +499,8 @@ void sigint_handler(int sig)
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
         Kill(-job->pid, SIGINT);
+        printf("Job [%i] (%i) terminated by signal %i\n", job->jid, job->pid, sig);
         deletejob(jobs, job->pid);
-        printf("\n");
         fflush(stdout);
     }
 }
@@ -470,21 +512,14 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-    printf("sigtstp_handler invoked\n");
-    fflush(stdout);
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
       Kill(-job->pid, SIGTSTP);
       job->state = ST;
-      printf("Suspend fg job %i, new state: %i", job->pid, job->state);
+      printf("Job [%i] (%i) stopped by signal %i\n", job->jid, job->pid, sig);
       fflush(stdout);
       return;
-    } else {
-        printf("sigtstp_handler jid was null\n");
-        fflush(stdout);
     }
-    printf("sigtstp_handler over\n");
-    fflush(stdout);
 }
 
 /*********************
