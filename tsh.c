@@ -197,8 +197,8 @@ void eval(char *cmdline)
         Sigprocmask(SIG_BLOCK, &mask, NULL); 
 
         if ((pid = Fork()) == 0) { /* Child runs user job */
-            Setpgid(0, 0); //give the child a new group
-	/* unblock signals for child */
+            Setpgid(0, 0); // give the child a new group
+            /* unblock signals for child */
             Sigprocmask(SIG_UNBLOCK, &mask, NULL); 
             if (execve(argv[0], argv, environ) < 0) {
                 printf("%s: Command not found.\n", argv[0]);
@@ -207,7 +207,9 @@ void eval(char *cmdline)
         }
 
         addjob(jobs, pid, bg?BG:FG, cmdline);
-        //printf("added job with pid %i\n", pid);
+        if (bg) {
+            printf("[%i] (%i) %s", getjobpid(jobs, pid)->jid, pid, cmdline);
+        }
 	Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock SIGCHLD */
         /* Parent waits for foreground job to terminate */
         if (!bg) {
@@ -413,8 +415,6 @@ void do_bgfg(char **argv)
     }
 
     if (!strcmp(argv[0], "fg")) {
-        printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);
-        fflush(stdout);
         if (Kill(-job->pid, SIGCONT) == 0) {
             job->state = FG;
             // since sigcont will just run the program in the background, 
@@ -423,7 +423,7 @@ void do_bgfg(char **argv)
             waitfg(job->pid);
         }
     } else if (!strcmp(argv[0], "bg")) {
-        printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);	
+        printf("[%i] (%i) %s", job->jid, job->pid, job->cmdline);	
         fflush(stdout);
         if (Kill(-job->pid, SIGCONT) == 0) {
             job->state = BG;
