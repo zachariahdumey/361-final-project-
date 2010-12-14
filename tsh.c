@@ -374,65 +374,55 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
-	struct job_t* job;
-        char is_percent; // the first char of argv[1] (to check for a '%') 
-	char * jidarg = argv[1] + 1;
-	is_percent = argv[1][0];
 
-	if (argv[1] == NULL) {
-		printf("%s requires a nonzero PID or %%jobid argument.. you gave none\n", argv[0]);
-		return;
-	}
+    struct job_t * job;
 
-	if (is_percent != '%' && atoi(&is_percent) == 0) {
-		printf("%s requires a valid (nonzero) PID or %%jobid argument", argv[0]);
-		return;
-	}
-		
-	job = is_percent == '%'? getjobjid(jobs, atoi(jidarg)) : getjobpid(jobs, atoi(argv[1]));
-	
-	if (!strcmp(argv[0], "fg")) {
-        	if (job != NULL && job->state == ST) {
-            		printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);
-            		fflush(stdout);
-            		if (Kill(-job->pid, SIGCONT) == 0) {
-				job->state = FG;
-				// since sigcont will just run the program in the background, 
-				// we need to explicitly tell the shell
-				// to wait for it to complete
-				waitfg(job->pid);
-			}
-		}
-		else if (job == NULL) {
-			if (is_percent == '%') {
-				printf("(%i) No such job by this jid\n", atoi(jidarg));
-			}
-			else {
-				printf("(%i) No such job by this pid\n", atoi(argv[1]));
-			}
-			fflush(stdout);
-		}
-	}
-	else if (!strcmp(argv[0], "bg")) {
-		if (job != NULL && job->state == ST) {
-			printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);	
-			fflush(stdout);
-			if (Kill(-job->pid, SIGCONT) == 0) {
-				job->state = BG;
-			}
-		}
-		else if (job == NULL) {
-			if (is_percent == '%') {
-				printf("(%i) No such job by this jid\n", atoi(jidarg));
-			}
-			else {
-				printf("(%i) No such job by this pid\n", atoi(argv[1]));
-			}
-			fflush(stdout);
-		}
-	}
-	fflush(stdout);
-	return;
+    if (isdigit(argv[1])) {
+        // Check if the second argument is a digit
+        job = getjobpid(jobs, atoi(argv[1]));
+    } else if (argv[1][0] == '%') {
+        // Check if the second argument is %number (e.g. %5)
+        job = getjobjid(jobs, atoi(argv[1]+1));
+    } else {
+        // Otherwise, the argument is invalid
+        printf("%s requires a nonzero PID or %%jobid argument. None provided\n",
+                argv[0]);
+        fflush(stdout);
+        return;
+    }
+
+    if (job == NULL) {
+        // If the job is null, report invalid argument and stop
+        printf("%s requires a valid (nonzero) PID or %%jobid argument\n",
+                argv[0]);
+        fflush(stdout);
+        return;
+    } else if (job->state != ST) {
+        // If the job is not stopped, report it and stop
+        printf("%s requires a job which is not running\n", argv[0]);
+        fflush(stdout);
+        return;
+    }
+
+    if (!strcmp(argv[0], "fg")) {
+        printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);
+        fflush(stdout);
+        if (Kill(-job->pid, SIGCONT) == 0) {
+            job->state = FG;
+            // since sigcont will just run the program in the background, 
+            // we need to explicitly tell the shell
+            // to wait for it to complete
+            waitfg(job->pid);
+        }
+    } else if (!strcmp(argv[0], "bg")) {
+        printf("[%i] (%i) %s\n", job->jid, job->pid, job->cmdline);	
+        fflush(stdout);
+        if (Kill(-job->pid, SIGCONT) == 0) {
+            job->state = BG;
+        }
+    }
+    fflush(stdout);
+    return;
 }
 
 /* 
