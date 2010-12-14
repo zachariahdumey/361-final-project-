@@ -376,30 +376,38 @@ void do_bgfg(char **argv)
 {
 
     struct job_t * job;
+    job = NULL;
 
-    if (isdigit(argv[1])) {
+    if (argv[1] == NULL) {
+         printf("%s command requires PID or %%jobid argument\n", argv[0]);
+         fflush(stdout);
+         return;
+    }
+
+    if (isdigit(*argv[1])) {
         // Check if the second argument is a digit
         job = getjobpid(jobs, atoi(argv[1]));
-    } else if (argv[1][0] == '%') {
+        if (!job) {
+            printf("(%s): No such process\n", argv[1]);
+            fflush(stdout);
+            return;
+        }
+    } else if (strlen(argv[1]) > 1 && argv[1][0] == '%') {
         // Check if the second argument is %number (e.g. %5)
-        job = getjobjid(jobs, atoi(argv[1]+1));
-    } else {
-        // Otherwise, the argument is invalid
-        printf("%s requires a nonzero PID or %%jobid argument. None provided\n",
-                argv[0]);
-        fflush(stdout);
-        return;
+        if (isdigit(argv[1][1])) {
+            // Make sure that the second character is a digit
+            job = getjobjid(jobs, atoi(argv[1]+1));
+            if (!job) {
+                printf("%s: No such job\n", argv[1]);
+                fflush(stdout);
+                return;
+            }
+        }
     }
 
     if (job == NULL) {
         // If the job is null, report invalid argument and stop
-        printf("%s requires a valid (nonzero) PID or %%jobid argument\n",
-                argv[0]);
-        fflush(stdout);
-        return;
-    } else if (job->state != ST) {
-        // If the job is not stopped, report it and stop
-        printf("%s requires a job which is not running\n", argv[0]);
+        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
         fflush(stdout);
         return;
     }
