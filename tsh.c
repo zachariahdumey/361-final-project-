@@ -374,9 +374,8 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
-	
 	struct job_t* job;
-        char is_percent; //using this to hold the first char of argv[1] to check for a % 
+        char is_percent; // the first char of argv[1] (to check for a '%') 
 	char * jidarg = argv[1] + 1;
 	is_percent = argv[1][0];
 
@@ -385,7 +384,7 @@ void do_bgfg(char **argv)
 		return;
 	}
 
-	if (is_percent != '%' && atoi(is_percent) == 0) {
+	if (is_percent != '%' && atoi(&is_percent) == 0) {
 		printf("%s requires a valid (nonzero) PID or %%jobid argument", argv[0]);
 		return;
 	}
