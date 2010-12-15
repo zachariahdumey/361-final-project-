@@ -3,8 +3,8 @@
  *
  * tsh - A tiny shell program with job control
  *
- * cmcdonough@wustl.edu (Colin McDonough)
- * Zachariah Dumey zwdumey@wustl.edu
+ * cmcdonough@wustl.edu, cam4 (Colin McDonough)
+ * zwdumey@wustl.edu, zwd1 (Zachariah Dumey)
  */
 #include <stdio.h>
 #include <stdlib.h>
