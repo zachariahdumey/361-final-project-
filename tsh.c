@@ -470,10 +470,24 @@ void sigchld_handler(int sig)
 
     while ((pid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
         //printf("Handler reaped child %d\n", (int)pid);
+        //printf("Spinning\n");
+        //fflush(stdout);
         if (WIFEXITED(status)) {
+            //printf("WIFEXITED\n");
+            //fflush(stdout);
 	        //remove normally terminated children from jobs
         	job = getjobpid(jobs, pid);
         	deletejob(jobs, pid);
+        } else if (WIFSIGNALED(status)) {
+            //printf("WIFSIGNALED\n");
+            //fflush(stdout);
+            job = getjobpid(jobs, pid);
+            deletejob(jobs, pid);
+        } else if (WIFSTOPPED(status)) {
+            //printf("WIFSTOPPED\n");
+            //fflush(stdout);
+            job = getjobpid(jobs, pid);
+            job->state = ST;
         }
     }
 
