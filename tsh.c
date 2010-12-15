@@ -482,13 +482,19 @@ void sigchld_handler(int sig)
     // external process, job was slept by an external process, job terminated
     // abnormally
     while ((pid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
-        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+        if (WIFEXITED(status)) {
+            deletejob(jobs, pid);
+        } else if (WIFSIGNALED(status)) {
+            job = getjobpid(jobs, pid);
+            printf("Job [%i] (%i) terminated by signal %i\n",
+                    job->jid, job->pid, WTERMSIG(status));
+            fflush(stdout);
             deletejob(jobs, pid);
         } else if (WIFSTOPPED(status)) {
             job = getjobpid(jobs, pid);
             job->state = ST;
         } else {
-            printf("Process (%i) terminated abnormallyi\n", pid);
+            printf("Process (%i) terminated abnormally\n", pid);
             fflush(stdout);
             deletejob(jobs, pid);
         }
@@ -516,8 +522,8 @@ void sigint_handler(int sig)
         Kill(-job->pid, SIGINT);
         printf("Job [%i] (%i) terminated by signal %i\n",
                 job->jid, job->pid, sig);
-        deletejob(jobs, job->pid);
         fflush(stdout);
+        deletejob(jobs, job->pid);
     }
 }
 
