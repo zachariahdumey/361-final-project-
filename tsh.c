@@ -208,11 +208,13 @@ void eval(char *cmdline)
 
         addjob(jobs, pid, bg?BG:FG, cmdline);
         if (bg) {
+            // Notify user that job is running in the background
             printf("[%i] (%i) %s", getjobpid(jobs, pid)->jid, pid, cmdline);
         }
-	Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock SIGCHLD */
-        /* Parent waits for foreground job to terminate */
+	Sigprocmask(SIG_UNBLOCK, &mask, NULL); /* Unblock signals */
+
         if (!bg) {
+            /* Parent waits for foreground job to terminate */
             waitfg(pid);
         }
     }
@@ -220,6 +222,9 @@ void eval(char *cmdline)
     return;
 }
 
+/*
+ * Robust system call wrapper
+ */
 pid_t Setpgid(pid_t a, pid_t b) {
 	pid_t pid;
 	if ((pid = setpgid(a, b)) < 0) {
@@ -229,7 +234,7 @@ pid_t Setpgid(pid_t a, pid_t b) {
 }	
 
 /*
- *
+ * Robust system call wrapper
  */
 pid_t Fork(void) {
     pid_t pid;
@@ -241,7 +246,7 @@ pid_t Fork(void) {
 }
 
 /*
- *
+ * Robust system call wrapper
  */
 int Sigemptyset(sigset_t *set) {
     int value;
@@ -253,7 +258,7 @@ int Sigemptyset(sigset_t *set) {
 }
 
 /*
- *
+ * Robust system call wrapper
  */
 int Sigaddset(sigset_t *set, int signum) {
     int value;
@@ -265,7 +270,7 @@ int Sigaddset(sigset_t *set, int signum) {
 }
 
 /*
- *
+ * Robust system call wrapper
  */
 int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
     int value;
@@ -276,6 +281,9 @@ int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
     return value;
 }
 
+/*
+ * Robust system call wrapper
+ */
 pid_t Kill(pid_t p, int signum) {
 	pid_t pid;	
 	if ((pid = kill(p, signum)) < 0) {
@@ -381,6 +389,7 @@ void do_bgfg(char **argv)
     job = NULL;
 
     if (argv[1] == NULL) {
+         // Missing arguments
          printf("%s command requires PID or %%jobid argument\n", argv[0]);
          fflush(stdout);
          return;
@@ -423,6 +432,7 @@ void do_bgfg(char **argv)
             waitfg(job->pid);
         }
     } else if (!strcmp(argv[0], "bg")) {
+        // Restart job but do not wait for the job (job is in background)
         printf("[%i] (%i) %s", job->jid, job->pid, job->cmdline);	
         fflush(stdout);
         if (Kill(-job->pid, SIGCONT) == 0) {
@@ -468,32 +478,25 @@ void sigchld_handler(int sig)
     struct job_t *job;  
     int status;
 
+    // Handle all four cases: job finished normally, job was signalled by an
+    // external process, job was slept by an external process, job terminated
+    // abnormally
     while ((pid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0) {
-        //printf("Handler reaped child %d\n", (int)pid);
-        //printf("Spinning\n");
-        //fflush(stdout);
-        if (WIFEXITED(status)) {
-            //printf("WIFEXITED\n");
-            //fflush(stdout);
-	        //remove normally terminated children from jobs
-        	job = getjobpid(jobs, pid);
-        	deletejob(jobs, pid);
-        } else if (WIFSIGNALED(status)) {
-            //printf("WIFSIGNALED\n");
-            //fflush(stdout);
-            job = getjobpid(jobs, pid);
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
             deletejob(jobs, pid);
         } else if (WIFSTOPPED(status)) {
-            //printf("WIFSTOPPED\n");
-            //fflush(stdout);
             job = getjobpid(jobs, pid);
             job->state = ST;
+        } else {
+            printf("Process (%i) terminated abnormallyi\n", pid);
+            fflush(stdout);
+            deletejob(jobs, pid);
         }
     }
 
     // after the loop, it should be the case that the pid returned
-    // by waitpid == -1 AND errno == ECHILD 
-    // or that the pid == 0
+    // by waitpid is -1 AND errno is ECHILD 
+    // or that the pid is 0
     if ((errno != ECHILD && pid == -1) || pid > 0) {
         unix_error("waitpid error");
     }
@@ -509,8 +512,10 @@ void sigint_handler(int sig)
 {
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
+        // Only delete jobs that are on the jobs list
         Kill(-job->pid, SIGINT);
-        printf("Job [%i] (%i) terminated by signal %i\n", job->jid, job->pid, sig);
+        printf("Job [%i] (%i) terminated by signal %i\n",
+                job->jid, job->pid, sig);
         deletejob(jobs, job->pid);
         fflush(stdout);
     }
@@ -525,11 +530,12 @@ void sigtstp_handler(int sig)
 {
     struct job_t *job = getjobpid(jobs, fgpid(jobs));
     if (job != NULL) {
-      Kill(-job->pid, SIGTSTP);
-      job->state = ST;
-      printf("Job [%i] (%i) stopped by signal %i\n", job->jid, job->pid, sig);
-      fflush(stdout);
-      return;
+        // Only sleep jobs that are on the jobs list
+        Kill(-job->pid, SIGTSTP);
+        job->state = ST;
+        printf("Job [%i] (%i) stopped by signal %i\n", job->jid, job->pid, sig);
+        fflush(stdout);
+        return;
     }
 }
 
